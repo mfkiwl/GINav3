@@ -40,13 +40,13 @@ while 1
     % [实验步骤 1]：IMU 大偏差注入 (Fault Injection)
     % 在这里调用子函数，人为向IMU数据中添加巨大的误差
     % =====================================================================
-    imud = inject_imu_fault(imud, start_time_tag, opt);
+    % imud = inject_imu_fault(imud, start_time_tag, opt);
     
     % =====================================================================
     % [实验步骤 2]：IMU 数据抗差卡尔曼滤波 (Robust Pre-filtering)
     % 在INS机械编排前，对原始IMU数据进行滤波，尝试消除刚才注入的偏差
     % =====================================================================
-    imud = imu_prefilter_kf(imud, opt);
+%     imud = imu_prefilter_kf(imud, opt);
     
     % match rover obs
     [obsr_,nobsr]=matchobs(rtk_align,imud,obsr);
@@ -232,31 +232,31 @@ end
 % =========================================================================
 % Subfunction 1: Fault Injection
 % =========================================================================
-function imud = inject_imu_fault(imud, start_time, opt)
-    global glc
-    dt_sample = 1.0 / opt.ins.sample_rate; 
-    
-    % 计算当前运行时间（相对于开始时间的秒数）
-    current_dt = timediff(imud.time, start_time);
-    
-    % 设定故障时间窗口：例如第 400 秒到 420 秒
-    fault_start = 400.0;
-    fault_end   = 420.0;
-    
-    if current_dt >= fault_start && current_dt <= fault_end
-        % 注入故障参数
-        % 注意：imud.dv 是速度增量 (m/s)，对应加速度 (m/s^2) * dt
-        bias_acc_x = 5.0;  % 2 m/s^2 的巨大偏差
-        bias_gyro_z = 5 * glc.D2R; % 0.5 deg/s 的陀螺仪偏差
-        
-        % 执行注入
-        imud.dv(1) = imud.dv(1) + bias_acc_x * dt_sample;
-        imud.dw(3) = imud.dw(3) + bias_gyro_z * dt_sample;
-        
-        % 可选：打印日志确认注入
-        fprintf('DEBUG: Fault injected at t=%.1fs\n', current_dt);
-    end
-end
+% function imud = inject_imu_fault(imud, start_time, opt)
+%     global glc
+%     dt_sample = 1.0 / opt.ins.sample_rate; 
+%     
+%     % 计算当前运行时间（相对于开始时间的秒数）
+%     current_dt = timediff(imud.time, start_time);
+%     
+%     % 设定故障时间窗口：例如第 400 秒到 420 秒
+%     fault_start = 400.0;
+%     fault_end   = 420.0;
+%     
+%     if current_dt >= fault_start && current_dt <= fault_end
+%         % 注入故障参数
+%         % 注意：imud.dv 是速度增量 (m/s)，对应加速度 (m/s^2) * dt
+%         bias_acc_x = 5.0;  % 2 m/s^2 的巨大偏差
+%         bias_gyro_z = 5 * glc.D2R; % 0.5 deg/s 的陀螺仪偏差
+%         
+%         % 执行注入
+%         imud.dv(1) = imud.dv(1) + bias_acc_x * dt_sample;
+%         imud.dw(3) = imud.dw(3) + bias_gyro_z * dt_sample;
+%         
+%         % 可选：打印日志确认注入
+%         fprintf('DEBUG: Fault injected at t=%.1fs\n', current_dt);
+%     end
+% end
 
 % =========================================================================
 % Subfunction 2: Robust Kalman Pre-filter (Optimized for 5.0 bias)
@@ -276,16 +276,22 @@ function imud = imu_prefilter_kf(imud, opt)
     end
     
     if isempty(kf_inited)
-        % 初始化滤波器
+        % 初始化滤波器状态
         x_est = [imud.dw'; imud.dv']; 
-        P_est = eye(n_states) * 1e-4;
+        % 初始协方差 P 可以适当给大一点，让其快速收敛
+        P_est = eye(n_states) * 1e-2;
         
-        % [关键修改 1] 调小过程噪声 Q
-        % 让滤波器更"信任"之前的状态，从而使突变的新息(Innovation)更大
-        Q = eye(n_states) * 1e-8; 
+        % [修改 1] 增大过程噪声 Q
+        % 消费级IMU通常用于高动态场景，状态(增量)变化快。
+        % Q 过小会导致滤波“迟滞”(Lag)，无法跟踪真实的快速运动。
+        % 这里从 1e-8 增大到 1e-4
+        Q = eye(n_states) * 1e-4; 
         
-        % [关键修改 2] 设定测量噪声 R
-        R = eye(n_states) * 1e-5;
+        % [修改 2] 增大测量噪声 R
+        % 消费级IMU白噪声大 (High Noise Density)。
+        % 增大 R 表示我们认为观测值含有较多噪声，KF会加强平滑效果。
+        % 这里从 1e-5 增大到 1e-2 (根据实际MEMS噪声水平调整)
+        R = eye(n_states) * 1e-2;
         
         kf_inited = 1;
     end
@@ -300,17 +306,17 @@ function imud = imu_prefilter_kf(imud, opt)
     % 3. 抗差 (Robust Check)
     v = Z - x_pred; % 新息
     
-    % [关键修改 3] 基于物理意义收紧阈值
-    % 即使是很大的偏差，分摊到单历元增量上也很小，所以阈值必须非常敏感
+    % [修改 3] 放宽抗差阈值
+    % 消费级IMU噪声大，且容易受震动影响（特别是加速度计）。
+    % 阈值过紧会导致正常的震动或机动被当成粗差剔除，导致严重的信号失真。
     
-    % 陀螺仪阈值：允许两帧之间角速度突变 2.0 deg/s
-    % 对应增量阈值 = 2.0 * D2R * dt
-    gyro_jump_limit = 2.0 * glc.D2R * dt; 
+    % 陀螺仪阈值：允许两帧之间角速度突变 10.0 deg/s (应对快速旋转)
+    % 对应增量阈值 = 10.0 * D2R * dt
+    gyro_jump_limit = 10.0 * glc.D2R * dt; 
     
-    % 加速度阈值：允许两帧之间加速度突变 1.0 m/s^2
-    % 对应增量阈值 = 1.0 * dt
-    % 如果你的注入偏差是 5.0 m/s^2，那么 5.0*dt 的突变会被这个阈值捕捉到
-    acc_jump_limit = 1.0 * dt; 
+    % 加速度阈值：允许两帧之间加速度突变 2.0 m/s^2 (应对机动和震动)
+    % 对应增量阈值 = 2.0 * dt
+    acc_jump_limit = 2.0 * dt; 
     
     thresh = [repmat(gyro_jump_limit, 3, 1); ...
               repmat(acc_jump_limit,  3, 1)];
@@ -320,13 +326,17 @@ function imud = imu_prefilter_kf(imud, opt)
     for i = 1:n_states
         innovation = abs(v(i));
         
-        % 简单的二段式抗差
-        if innovation > thresh(i) * 5
-            % 严重异常（比如注入的 5.0 m/s^2 偏差）：极大放大 R，拒绝更新
-            R_robust(i,i) = R(i,i) * 1e8; 
+        % 抗差逻辑调整：
+        % 对于消费级IMU，我们尽量不进行“完全拒绝更新”(即 1e8 这种操作)，
+        % 除非是非常明显的电气故障（Spike）。因为在剧烈震动下，完全拒绝会导致数据丢失。
+        if innovation > thresh(i) * 6
+            % 极大偏差（可能是传感器电气故障）：显著降权
+            R_robust(i,i) = R(i,i) * 1000; 
         elseif innovation > thresh(i)
-            % 轻微异常：适当放大 R
-            R_robust(i,i) = R(i,i) * (innovation / thresh(i))^2 * 100;
+            % 较大偏差（可能是剧烈震动或瞬态干扰）：温和降权
+            % 使用IGGIII等价权函数的思想
+            factor = (innovation / thresh(i))^2;
+            R_robust(i,i) = R(i,i) * factor;
         end
     end
     

@@ -33,11 +33,11 @@ if opt.mode==glc.PMODE_SPP
 elseif opt.mode==glc.PMODE_DGNSS||opt.mode==glc.PMODE_KINEMA
     % PPD/INS or PPK/INS
     if ~isstruct(obsb),stat=0;return;end
-    rtk.sol.age=timediff(obsr(1).time,obsb(1).time);
+    rtk.sol.age=timediff(obsr(1).time,obsb(1).time);    
     
-    % === 【新增】 注入人为故障 (对照组) ===
-    % obsr = add_gnss_bias(obsr); 
-    % ===================================
+    % ==========================
+%     obsr = add_gnss_bias(obsr);
+    % ==========================
     
     [rtk,stat]=rtkins(rtk,obsr,obsb,nav);
 else
