@@ -46,7 +46,7 @@ while 1
     % [实验步骤 2]：IMU 数据抗差卡尔曼滤波 (Robust Pre-filtering)
     % 在INS机械编排前，对原始IMU数据进行滤波，尝试消除刚才注入的偏差
     % =====================================================================
-%     imud = imu_prefilter_kf(imud, opt);
+    imud = imu_prefilter_kf(imud, opt);
     
     % match rover obs
     [obsr_,nobsr]=matchobs(rtk_align,imud,obsr);

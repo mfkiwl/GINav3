@@ -36,7 +36,7 @@ elseif opt.mode==glc.PMODE_DGNSS||opt.mode==glc.PMODE_KINEMA
     rtk.sol.age=timediff(obsr(1).time,obsb(1).time);    
     
     % ==========================
-%     obsr = add_gnss_bias(obsr);
+    obsr = add_gnss_bias(obsr);
     % ==========================
     
     [rtk,stat]=rtkins(rtk,obsr,obsb,nav);
